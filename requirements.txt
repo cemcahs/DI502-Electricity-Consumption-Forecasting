@@ -1,0 +1,11 @@
+XlsxWriter
+dash
+plotly
+lightgbm
+numpy
+pandas
+matplotlib
+google-cloud-storage
+gunicorn
+openpyxl
+scikit-learn

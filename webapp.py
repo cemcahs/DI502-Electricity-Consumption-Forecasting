@@ -15,6 +15,8 @@ import datetime
 import os
 from google.cloud import storage
 import openpyxl
+import shap
+import plotly.tools as tls
 
 def read_excel_blob(bucket_name, blob_name):
 
@@ -52,31 +54,54 @@ app = Dash(__name__)
 
 server = app.server
 
-app.layout = html.Div([
+welcome_layout = html.Div([
+    html.H1("Welcome to the Electricity Consumption Forecasting Dashboard"),
+    html.Br(),
+    html.P("With the help of this dash, you will be able to access the machine learning model developed with EPIAS data for Turkey to forecast electricity consumption for desired date range.",style={"font-size": 21}),
+    html.Br(),
+    html.Br(),
+    html.Img(src='https://media.giphy.com/media/lM86pZcDxfx5e/giphy.gif',style={'height': 'auto', 'width': '100vh'})
+    # Include any other elements you want on the Welcome page
+], style={'margin-top': '50px',"justify-content": "center", "text-align": "center"})
 
+dashboard_layout = html.Div([
+    
     html.Img(src="https://mb.cision.com/Public/MigratedWpy/97284/9176690/96d47ec275a08bc0_800x800ar.jpg"),
     
+    html.Br(style={"line-height": "2"}),
+
+
     # Dropdown or input for forecasting periods
     html.Div([
-        dcc.Slider(
-            id='forecast-periods',
-            min=1,
-            max=30,
-            step=1,
-            value=14,
-            marks={i: str(i) for i in range(1, 31)}
-        )
-    ], style={'width': '80%', 'padding': '20px'}),
+        html.Label('Choose an end date for prediction:', style={'font-weight': 'bold',"font-size": 21})
+    ]),
+
+    html.Br(),
+    
+    html.Div([
+        dcc.DatePickerSingle(
+            id='date-picker-single',
+            date="2023-12-31",  # Ön tanımlı tarih olarak bugünü kullanabilirsiniz
+            display_format='YYYY-MM-DD'
+        )]),
+
+    html.Br(style={"line-height": "3"}),
 
     # Button to trigger forecasting
     html.Button('Forecast', id='forecast-button',style={'width': '10%'}),
-
+    
+    html.Br(),
+    html.Br(),
+    html.Br(),
+    
     # Graph to display the forecast
-    dcc.Graph(id='forecast-graph',style={'width': '60%', 'display': 'inline-block'}),
-
+    dcc.Graph(id='forecast-graph',style={'width': '60%'}),
+    html.Br(),
+    dcc.Graph(id='shap-graph',style={'width': '40%'}),
+    
     # Button to download data
-    html.Button("Download Excel", id="btn_xlsx"),
-    dcc.Download(id="download-dataframe-xlsx")
+    html.Button("Download Forecasts", id="btn_xlsx"),
+    dcc.Download(id="download-dataframe-xlsx"),
 ],
 
     style={
@@ -86,20 +111,74 @@ app.layout = html.Div([
         'align-items': 'center',  # Centers items horizontally
         'height': '100vh',  # Use full height of the view port
         'width': '80%',  # Use 80% of the width, you can adjust as needed
-        'margin': '0 auto'  # Center the div on the page
+        'margin': '0 auto',  # Center the div on the page
+        'margin-top': '50px', 
+        'margin-bottom': '50px'
     }
 
 )
 
+# Layout for the FAQ page
+faq_layout = html.Div([
+    html.H1("Frequently Asked Questions"),
+    html.P("Here you can find answers to common questions about electricity consumption:",style={"font-size": 21}),
+
+    html.Br(),
+    html.P("How was the model for electricity consumption trained? ",style={'font-weight': 'bold',"font-size": 18}),
+    html.P("The training, testing and evaluation data has been retrieved to our servers from EPIAS open source platform.",style={"font-size": 18}),
+
+    html.P("Is it possible for the model to overfit or underfit for the consumption data of Turkey?",style={'font-weight': 'bold',"font-size": 18}),
+    html.P("The model used more than 2 years of data JUST FOR TRAINING! Thus it is very unlikely to see an overfitting behaviour as the model seen a lot of various trends during the 2 years of data. Also, learning curve of the model is checked.",style={"font-size": 18}),
+
+    html.P("Will the data also be available in the future for providing the most recent forecasts?",style={'font-weight': 'bold',"font-size": 18}),
+    html.P("The EPIAS platform is providing the consumption and generation data for various energy sources as a mandatory service due to Turkish legislation. Thus even if this task will be taken away from EPIAS also by Turkish officials, another data sharing platform has to be provided according to aforementioned legislation. Our product is designed to be adapted to a potential new dataset in a few hours thus The Bias Busters are going to keep providing consumption forecasts!",style={"font-size": 18}),
+    
+    html.P("How reliable are the forecasts?",style={'font-weight': 'bold',"font-size": 18}),
+    html.P("Model performance is so high with 0.96 R2 so forecast will be reliable if there is no significant pattern change causing from external factors like new tech or economic crisis.",style={"font-size": 18})
+    # Include your FAQ content here
+],style={'margin-top': '50px'})
+
+# Layout for the Contact page
+contact_layout = html.Div([
+    html.H1("Contact Us"),
+    html.P("For any question or further inquiries, please contact:",style={"font-size": 18}),
+    html.P("cemalicoskunirmak@gmail.com",style={"font-size": 18,'font-weight': 'bold'})],style={'margin-top': '50px'}),
+
+
+
+app.layout = html.Div([
+    dcc.Location(id='url', refresh=False),
+    html.Div([
+        dcc.Link('Welcome || ', href='/',style={'font-family': 'Times New Roman, Times, serif', 'font-weight': 'bold',"font-size": 21}),
+        dcc.Link('Forecasting Dash || ', href='/dashboard',style={'font-family': 'Times New Roman, Times, serif', 'font-weight': 'bold',"font-size": 21}),
+        dcc.Link('FAQ || ', href='/faq',style={'font-family': 'Times New Roman, Times, serif', 'font-weight': 'bold',"font-size": 21}),
+        dcc.Link('Contact', href='/contact',style={'font-family': 'Times New Roman, Times, serif', 'font-weight': 'bold',"font-size": 21}),
+    ], className="row"),
+    html.Div(id='page-content')
+])
+
+@app.callback(Output('page-content', 'children'),
+              [Input('url', 'pathname')])
+
+def display_page(pathname):
+    if pathname == '/faq':
+        return faq_layout
+    elif pathname == '/contact':
+        return contact_layout
+    elif pathname == '/dashboard':
+        return dashboard_layout  # Use your existing dashboard layout here
+    return welcome_layout  # Default to the Welcome page
+
 @app.callback(
     [Output('forecast-graph', 'figure'),
+     Output('shap-graph', 'figure'),
      Output("download-dataframe-xlsx", "data")],
     [Input('forecast-button', 'n_clicks'),
      Input("btn_xlsx", "n_clicks")],
-    [State('forecast-periods', 'value')],
+    [State('date-picker-single', 'date')],
     prevent_initial_call=True)
 
-def update_and_download(n_clicks_forecast, n_clicks_download, forecast_periods):
+def update_and_download(n_clicks_forecast, n_clicks_download, end_date):
     
     ctx = dash.callback_context
 
@@ -108,6 +187,8 @@ def update_and_download(n_clicks_forecast, n_clicks_download, forecast_periods):
 
     # data_file_path = os.getenv('DATA_FILE_PATH', 'Electricity_Consmption_EPIAS_data.xlsx')
     # prediction_file_path = os.getenv('PREDICTION_FILE_PATH', 'prediction.xlsx')
+
+    start_date=datetime.date(2023, 10, 1)
 
     bucket_name = 'electricity_consump'
     data_blob_name = 'Electricity_Consmption_EPIAS_data.xlsx'  # The name of the blob in the bucket
@@ -148,7 +229,7 @@ def update_and_download(n_clicks_forecast, n_clicks_download, forecast_periods):
         
         train = df[df.Tarih <= "2023-09-30"].reset_index(drop=True).copy()
 
-        test_period = date_range(start='2023-10-01 00:00:00', periods=forecast_periods*24, freq='H')
+        test_period = date_range(start= start_date, periods=(pd.to_datetime(end_date) - pd.to_datetime(start_date)).days * 24, freq='H')
 
         x_test = pd.DataFrame(
             {
@@ -165,10 +246,10 @@ def update_and_download(n_clicks_forecast, n_clicks_download, forecast_periods):
         x_train = train.iloc[:,-7:]
         y_train = train.loc[:,target]
 
-        basic_model = LGBMRegressor(random_state=42,verbose=1,**best_params)
-        basic_model.fit(x_train, y_train)
+        model = LGBMRegressor(random_state=42,verbose=1,**best_params)
+        model.fit(x_train, y_train)
 
-        y_predicted = pd.Series(basic_model.predict(x_test))
+        y_predicted = pd.Series(model.predict(x_test))
         y_predicted.index = test_period
         
         write_dataframe_to_blob(bucket_name, 'prediction.xlsx', pd.DataFrame(y_predicted))
@@ -196,21 +277,46 @@ def update_and_download(n_clicks_forecast, n_clicks_download, forecast_periods):
         layout = go.Layout(
             title = 'LightGBM_Tuned_Model',
             xaxis = dict(title='Time'),
-            yaxis = dict(title='Value'),
+            yaxis = dict(title='Kwh'),
             legend = dict(x=0, y=1)
         )
 
         # Figure
         fig = go.Figure(data=[trace1, trace2], layout=layout)
 
-        return fig, no_update
+        shap_values = shap.TreeExplainer(model).shap_values(x_test)
+        feature_names = x_test.columns
+
+        mean_abs_shap_values = np.abs(shap_values).mean(axis=0)
+        feature_importance = dict(zip(feature_names, mean_abs_shap_values))
+
+        sorted_features = sorted(feature_importance.items(), key=lambda x: x[1], reverse=False)
+
+        data = []
+        for feature_name, _ in sorted_features:
+            feature_index = feature_names.get_loc(feature_name)
+            shap_values_feature = shap_values[:, feature_index]
+            data.append(go.Scatter(
+                y=[feature_name] * len(shap_values_feature),
+                x=shap_values_feature,
+                mode='markers',
+                name=feature_name
+            ))
+
+
+        # Plotly figürünü oluşturun
+        fig2 = go.Figure(data=data)
+
+        fig2.update_layout(title_text= "Feature Importance by SHAP Values", title_x=0.5, title_y=0.95,title={"font" : {'family': "Arial Black, sans-serif"}}, xaxis = dict(title='Shap Value (impact on model output)'))
+
+        return fig, fig2, no_update
     
     elif button_id == "btn_xlsx":
         # Assuming the figure data is stored and accessible here
         # You need to ensure that the forecast data is available to be downloaded
         df = read_excel_blob(bucket_name, prediction_blob_name)  # Replace with actual forecast data
         df.columns = ["Date","Tüketim Miktarı (MWh)"]
-        return no_update, dcc.send_data_frame(df.to_excel, "forecast_data.xlsx", sheet_name='Forecast Data')
+        return no_update,no_update, dcc.send_data_frame(df.to_excel, "forecast_data.xlsx", sheet_name='Forecast Data')
     else:
         raise PreventUpdate
 
